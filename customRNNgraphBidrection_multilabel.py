@@ -5,8 +5,7 @@ import tensorflow as tf
 from customLSTMcell import LayerNormalizedLSTMCell
 import matplotlib.pyplot as plt
 import math
-from sklearn import metrics
-
+import multilabel_evaluation as m_eval
 # use ggplot style for more sophisticated visuals
 plt.style.use('ggplot')
 
@@ -44,7 +43,8 @@ class RNN_bidirect_build_graph:
         with tf.variable_scope("rnn_layer"):
             x = tf.placeholder(tf.int32, [self.batch_size, self.sequence_length], name='input_placeholder')
             y_word = tf.placeholder(tf.int32, [self.batch_size, self.sequence_length], name='labels_placeholder')
-            y_sentiment = tf.placeholder(tf.int32, [self.batch_size], name='sentiments_placeholder')
+            y_sentiment = tf.placeholder(tf.float32, [self.batch_size, self.num_classes], name='sentiments_placeholder')
+            label_weight = tf.placeholder(tf.float32, [self.batch_size, self.num_classes], name='label_weight_placeholder')
             embeddings = tf.placeholder(tf.float32, [self.num_words, self.state_size], name='embeddings_placeholder')
 
             tf_dropout = tf.placeholder_with_default(1.0,[])
@@ -149,9 +149,10 @@ class RNN_bidirect_build_graph:
             fc1 = tf.matmul(rnn_outputs_concat, W_s1) + b_s1
             fc2 = tf.matmul(fc1, W_s2) + b_s2
             sentiment_logits = tf.matmul(fc2, W_s3) + b_s3
-            sentiment_predictions = tf.nn.softmax(sentiment_logits, name='predictions_sentiment')
-            sentiment_cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y_sentiment, logits=sentiment_predictions, name="cross_entropy_sentiment")
-            sentiment_cross_entropy_mean = tf.reduce_mean(sentiment_cross_entropy, name="cross_entropy_sentiment_mean")
+            sentiment_predictions = tf.nn.sigmoid(sentiment_logits, name='predictions_sentiment')
+            sentiment_cross_entropy = tf.nn.sigmoid_cross_entropy_with_logits(labels=y_sentiment, logits=sentiment_predictions, name="cross_entropy_sentiment")
+            sentiment_cross_entropy_weighted = tf.matmul(sentiment_cross_entropy, label_weight)
+            sentiment_cross_entropy_mean = tf.reduce_mean(sentiment_cross_entropy_weighted, name="cross_entropy_sentiment_mean")
 
         freeze_train_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="sentiment_softmax")
         sentiment_train_step_freeze = tf.train.AdamOptimizer(tf_learning_rate).minimize(sentiment_cross_entropy_mean, var_list=freeze_train_vars)
@@ -284,7 +285,7 @@ class RNN_bidirect_build_graph:
             np.save("bidrect_base_testing_losses.npy", testing_losses)
         return dict(training_losses = training_losses, testing_losses=testing_losses)
 
-    def train_finetune_model(self, data, num_epochs=0, learning_rate=1e-4, num_epochs2=None, learning_rate2=1e-4, zero_init_state=True, dropout=1.0, dropout2=1.0, verbose=True, verbose_graph=False, save=False, pretrain_model=None, training_resume=False):
+    def train_finetune_model(self, data, num_epochs=0, learning_rate=1e-4, num_epochs2=None, learning_rate2=1e-4, zero_init_state=True, dropout=1.0, dropout2=1.0, verbose=True, verbose_graph=False, save=False, pretrain_model=None, training_resume=False, label_weight=None):
         tf.set_random_seed(2345)
         steps_per_train_epoch = int(data['train_data'].shape[0]/self.batch_size)+1
         if 'test_data' in data.keys():
@@ -371,6 +372,8 @@ class RNN_bidirect_build_graph:
                     offset = (step*self.batch_size) % (data['train_data'].shape[0]-self.batch_size)
                     batch_data = data['train_data'][offset:(offset+self.batch_size)]
                     batch_labels = data['train_labels'][offset:(offset+self.batch_size)]
+                    if label_weight is not None:
+                        label_weight = np.diag(np.ones(self.num_classes))
                     feed_dict={self.graph['x']: batch_data, self.graph['y_sentiment']: batch_labels, self.graph['embeddings']: data['embedding'], self.graph['learning_rate']: learning_rate_feed, self.graph['dropout']:dropout_feed}
                     if self.init_trainable == False and zero_init_state == False:
                         if training_state_fw is not None:
@@ -385,10 +388,10 @@ class RNN_bidirect_build_graph:
                               train_op],
                               feed_dict)
 
-                    pred_pd = pd.DataFrame(pred_)
-                    predictions = list(pred_pd.idxmax(axis=1))
-                    labels = list(batch_labels)
-                    training_acc += (1-metrics.hamming_loss(labels, predictions))
+                    pred_pd = np.array(pred_)
+                    predictions = np.round(pred_pd)
+                    labels = batch_labels
+                    training_acc += m_eval.multilabel_accuracy(labels, predictions)
                     training_loss += training_loss_
 
                     if step == 0 and epoch == 0:
@@ -433,10 +436,10 @@ class RNN_bidirect_build_graph:
                                                                  self.graph['final_state_bw'],
                                                                  pred_op],
                                                                 feed_dict)
-                        pred_pd = pd.DataFrame(pred_)
-                        predictions = list(pred_pd.idxmax(axis=1))
-                        labels = list(batch_labels)
-                        testing_acc += (1-metrics.hamming_loss(labels, predictions))
+                        pred_pd = np.array(pred_)
+                        predictions = np.round(pred_pd)
+                        labels = batch_labels
+                        testing_acc += m_eval.multilabel_accuracy(labels, predictions)
                         testing_loss += testing_loss_
 
                     testing_acces.append(testing_acc/steps_per_test_epoch)
