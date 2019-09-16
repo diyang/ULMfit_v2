@@ -162,6 +162,7 @@ class RNN_bidirect_build_graph:
             x = x,
             y_word = y_word,
             y_sentiment = y_sentiment,
+            label_weight = label_weight,
             embeddings = embeddings,
             dropout = tf_dropout,
             learning_rate = tf_learning_rate,
@@ -372,9 +373,9 @@ class RNN_bidirect_build_graph:
                     offset = (step*self.batch_size) % (data['train_data'].shape[0]-self.batch_size)
                     batch_data = data['train_data'][offset:(offset+self.batch_size)]
                     batch_labels = data['train_labels'][offset:(offset+self.batch_size)]
-                    if label_weight is not None:
+                    if label_weight is None:
                         label_weight = np.diag(np.ones(self.num_classes))
-                    feed_dict={self.graph['x']: batch_data, self.graph['y_sentiment']: batch_labels, self.graph['embeddings']: data['embedding'], self.graph['learning_rate']: learning_rate_feed, self.graph['dropout']:dropout_feed}
+                    feed_dict={self.graph['x']: batch_data, self.graph['y_sentiment']: batch_labels, self.graph['label_weight']: label_weight, self.graph['embeddings']: data['embedding'], self.graph['learning_rate']: learning_rate_feed, self.graph['dropout']:dropout_feed}
                     if self.init_trainable == False and zero_init_state == False:
                         if training_state_fw is not None:
                             feed_dict[self.graph['init_state_fw']] = training_state_fw
@@ -424,7 +425,6 @@ class RNN_bidirect_build_graph:
                         offset = (step*self.batch_size) % (data['test_data'].shape[0]-self.batch_size)
                         batch_data = data['test_data'][offset:(offset+self.batch_size)]
                         batch_labels = data['test_labels'][offset:(offset+self.batch_size)]
-
                         feed_dict={self.graph['x']: batch_data, self.graph['y_sentiment']: batch_labels, self.graph['embeddings']: data['embedding']}
                         if self.init_trainable == False and zero_init_state == False:
                             if testing_state_fw is not None:
