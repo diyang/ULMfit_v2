@@ -49,12 +49,12 @@ class RNN_bidirect_build_graph:
         with tf.variable_scope("rnn_layer"):
             x = tf.placeholder(tf.int32, [self.batch_size, self.sequence_length], name='input_placeholder')
             y_word = tf.placeholder(tf.int32, [self.batch_size, self.sequence_length], name='labels_placeholder')
-            y_topic = tf.placeholder(tf.int32, [self.batch_size], name='topic_placeholder')
+            y_topic = tf.placeholder(tf.int32, [self.batch_size, self.num_classes], name='topic_placeholder')
             embeddings = tf.placeholder(tf.float32, [self.num_words, self.state_size], name='embeddings_placeholder')
 
             tf_dropout = tf.placeholder_with_default(1.0,[])
             tf_learning_rate = tf.placeholder_with_default(1e-4,[])
-            tf_pos_weight = tf.placeholder_with_default(1.0,[])
+            tf_pos_weight = tf.placeholder_with_default(tf.ones(self.num_classes),[])
 
             rnn_inputs = tf.nn.embedding_lookup(embeddings, x)
 
@@ -465,7 +465,7 @@ class RNN_bidirect_build_graph:
                     batch_data = data['train_data'][offset:(offset + self.batch_size)]
                     batch_labels = data['train_labels'][offset:(offset + self.batch_size)]
                     if pos_weight is not None:
-                        pos_weight = 1.0
+                        pos_weight = np.ones(self.num_classes)
 
                     feed_dict = {self.graph['x']: batch_data, self.graph['y_topic']: batch_labels,
                                  self.graph['embeddings']: data['embedding'],
@@ -675,7 +675,7 @@ class RNN_bidirect_build_graph:
                         batch_data = data['test_data'][offset:(offset + self.batch_size)]
                         batch_labels = data['test_labels'][offset:(offset + self.batch_size)]
                         if pos_weight is not None:
-                            pos_weight = 1.0
+                            pos_weight = np.ones(self.num_classes)
 
                         feed_dict = {self.graph['x']: batch_data,
                                      self.graph['y_topic']: batch_labels,
