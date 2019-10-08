@@ -110,25 +110,6 @@ class RNN_bidirect_build_graph:
             rnn_outputs = tf.concat([rnn_outputs_fw, rnn_outputs_bw], 2)
             rnn_outputs = tf.identity(rnn_outputs, 'rnn_outputs_tensor')
 
-        #-------------------------------- NEXT WORDING PREDICTION --------------------------------------------
-        #global_step = tf.Variable(0, trainable=False)
-        #learning_rate_schedule = tf.train.cosine_decay(self.learning_rate, global_step, 5)
-        with tf.variable_scope('word_prediction'):
-            #W1 = tf.get_variable('W1', [self.state_size*2, self.state_size])
-            #b1 = tf.get_variable('b1', [self.state_size], initializer=tf.constant_initializer(0.0))
-            W2 = tf.get_variable('W2', [self.state_size*2, self.num_words])
-            b2 = tf.get_variable('b2', [self.num_words], initializer=tf.constant_initializer(0.0))
-            rnn_outputs_reshape = tf.reshape(rnn_outputs, [-1, self.state_size*2])
-            #fc_word = tf.matmul(rnn_outputs_reshape, W1) + b1
-            word_logits = tf.matmul(rnn_outputs_reshape, W2) + b2
-            word_predictions = tf.nn.softmax(word_logits, name='predictions')
-            y_reshaped = tf.reshape(y_word, [-1])
-            word_cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y_reshaped, logits=word_logits, name="word_cross_entropy")
-            word_cross_entropy_mean = tf.reduce_mean(word_cross_entropy, name="word_cross_entropy_mean")
-            word_train_step = tf.train.AdamOptimizer(tf_learning_rate).minimize(word_cross_entropy_mean)
-
-        #------------------------------- SENTIMENT CLASSIFICATION --------------------------------------------
-        with tf.variable_scope('sentiment_softmax'):
             # Hierarchical Attention Layer
             W_omega = tf.get_variable('W_omega', [self.state_size*2, self.state_size])
             b_omega = tf.get_variable('b_omega', [self.state_size])
@@ -137,9 +118,30 @@ class RNN_bidirect_build_graph:
             vu = tf.tensordot(v, u_omega, axes=1)
             alphas = tf.nn.softmax(vu)
             rnn_outputs_attn = tf.reduce_sum(rnn_outputs * tf.expand_dims(alphas, -1), 1)
+
+        #-------------------------------- NEXT WORDING PREDICTION --------------------------------------------
+        #global_step = tf.Variable(0, trainable=False)
+        #learning_rate_schedule = tf.train.cosine_decay(self.learning_rate, global_step, 5)
+        with tf.variable_scope('word_prediction'):
             # Dense Layers
             rnn_outputs_lst = tf.squeeze(tf.slice(rnn_outputs, [0, (self.sequence_length-1), 0], [self.batch_size, 1, self.state_size*2]))
             rnn_outputs_concat = tf.concat([rnn_outputs_lst, rnn_outputs_attn], 1)
+
+            W1 = tf.get_variable('W1', [self.state_size*4, self.state_size*2])
+            b1 = tf.get_variable('b1', [self.state_size*2], initializer=tf.constant_initializer(0.0))
+            W2 = tf.get_variable('W2', [self.state_size*2, self.num_words])
+            b2 = tf.get_variable('b2', [self.num_words], initializer=tf.constant_initializer(0.0))
+            rnn_outputs_reshape = tf.reshape(rnn_outputs_concat, [-1, self.state_size*4])
+            fc_word = tf.matmul(rnn_outputs_reshape, W1) + b1
+            word_logits = tf.matmul(fc_word, W2) + b2
+            word_predictions = tf.nn.softmax(word_logits, name='predictions')
+            y_reshaped = tf.reshape(y_word, [-1])
+            word_cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=y_reshaped, logits=word_logits, name="word_cross_entropy")
+            word_cross_entropy_mean = tf.reduce_mean(word_cross_entropy, name="word_cross_entropy_mean")
+            word_train_step = tf.train.AdamOptimizer(tf_learning_rate).minimize(word_cross_entropy_mean)
+
+        #------------------------------- SENTIMENT CLASSIFICATION --------------------------------------------
+        with tf.variable_scope('sentiment_softmax'):
             W_s1 = tf.get_variable('W_s1', [self.state_size*4, self.state_size*2])
             b_s1 = tf.get_variable('b_s1', [self.state_size*2], initializer=tf.constant_initializer(0.0))
             W_s2 = tf.get_variable('W_s2', [self.state_size*2, self.state_size])
